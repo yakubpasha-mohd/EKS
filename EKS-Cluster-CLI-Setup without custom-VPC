@@ -1,0 +1,308 @@
+1.Create a EKS cluster:
+
+$ eksctl create cluster \
+  --name my-eks-cluster \
+  --region us-east-1 \
+  --without-nodegroup
+=========
+2. Check the Cluster status:
+
+$ aws eks describe-cluster \
+  --name my-eks-cluster \
+  --region us-east-1 \
+  --query "cluster.status"
+  
+Output:
+
+"ACTIVE"
+==========
+3. Create a EKS cluster a node group.
+
+$ eksctl create nodegroup \
+  --cluster my-eks-cluster \
+  --region us-east-1 \
+  --name app-nodes \
+  --node-type t3.medium \
+  --nodes 2 \
+  --nodes-min 1 \
+  --nodes-max 2 \
+  --managed
+===================
+4. Assocate IAM OIDC provider :
+
+$ eksctl utils associate-iam-oidc-provider \
+  --cluster my-eks-cluster \
+  --region us-east-1 \
+  --approve
+===========
+5. Create a Policy and attach for ALB ingress Controller.
+
+$ curl -o alb-policy.json https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/main/docs/install/iam_policy.json
+===
+
+$ aws iam create-policy \
+  --policy-name AWSLoadBalancerControllerIAMPolicy-my-eks-cluster \
+  --policy-document file://alb-policy.json
+
+===
+Get the account-id:
+
+$ aws sts get-caller-identity
+{
+    "UserId": "AIDAXEFUNWPZ475AMPOVP",
+    "Account": "490004657139",
+    "Arn": "arn:aws:iam::490004657139:user/aws-admin"
+}
+$ eksctl create iamserviceaccount \
+  --cluster my-eks-cluster \
+  --region us-east-1 \
+  --namespace kube-system \
+  --name aws-load-balancer-controller \
+  --attach-policy-arn arn:aws:iam::490004657139:policy/AWSLoadBalancerControllerIAMPolicy-my-eks-cluster \
+  --approve \
+  --override-existing-serviceaccounts
+====
+6. check the POD status:
+
+$ kubectl get pods -n kube-system
+NAME                              READY   STATUS    RESTARTS   AGE
+aws-node-hqghl                    2/2     Running   0          3m16s
+aws-node-sgwwq                    2/2     Running   0          3m16s
+coredns-6b9575c64c-cvfbj          1/1     Running   0          7m22s
+coredns-6b9575c64c-lwr5f          1/1     Running   0          7m22s
+kube-proxy-l8782                  1/1     Running   0          3m16s
+kube-proxy-ts967                  1/1     Running   0          3m16s
+metrics-server-75c7985757-klhg4   1/1     Running   0          7m23s
+metrics-server-75c7985757-nljch   1/1     Running   0          7m23s
+===
+$ kubectl get nodes
+NAME                             STATUS   ROLES    AGE     VERSION
+ip-192-168-27-21.ec2.internal    Ready    <none>   3m32s   v1.32.9-eks-113cf36
+ip-192-168-33-215.ec2.internal   Ready    <none>   3m32s   v1.32.9-eks-113cf36
+===
+$ kubectl get pods -A
+NAMESPACE     NAME                              READY   STATUS    RESTARTS   AGE
+kube-system   aws-node-hqghl                    2/2     Running   0          3m38s
+kube-system   aws-node-sgwwq                    2/2     Running   0          3m38s
+kube-system   coredns-6b9575c64c-cvfbj          1/1     Running   0          7m44s
+kube-system   coredns-6b9575c64c-lwr5f          1/1     Running   0          7m44s
+kube-system   kube-proxy-l8782                  1/1     Running   0          3m38s
+kube-system   kube-proxy-ts967                  1/1     Running   0          3m38s
+kube-system   metrics-server-75c7985757-klhg4   1/1     Running   0          7m45s
+kube-system   metrics-server-75c7985757-nljch   1/1     Running   0          7m45s
+===
+$ kubectl get svc -A
+NAMESPACE     NAME                        TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)                  AGE
+default       kubernetes                  ClusterIP   10.100.0.1       <none>        443/TCP                  10m
+kube-system   eks-extension-metrics-api   ClusterIP   10.100.232.247   <none>        443/TCP                  10m
+kube-system   kube-dns                    ClusterIP   10.100.0.10      <none>        53/UDP,53/TCP,9153/TCP   7m50s
+kube-system   metrics-server              ClusterIP   10.100.56.1      <none>        443/TCP                  7m52s
+$
+
+7. Create Helm Package Manager for ALB Ingress Controller.
+ 
+$curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3-3
+
+$ chmod 700 get_helm.sh
+
+$ ./get_helm.sh
+[WARNING] Could not find git. It is required for plugin installation.
+Helm v3.19.0 is already latest
+ 
+$ sudo dnf install git
+
+$ ./get_helm.sh
+
+Helm v3.19.0 is already latest
+
+$ helm repo add eks https://aws.github.io/eks-charts
+"eks" already exists with the same configuration, skipping
+
+$ helm repo update
+Hang tight while we grab the latest from your chart repositories...
+...Successfully got an update from the "eks" chart repository
+Update Complete. ⎈Happy Helming!⎈
+
+$ helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
+  -n kube-system \
+  --set clusterName=my-eks-cluster \
+  --set serviceAccount.create=false \
+  --set serviceAccount.name=aws-load-balancer-controller
+NAME: aws-load-balancer-controller
+LAST DEPLOYED: Tue Oct 14 09:18:40 2025
+NAMESPACE: kube-system
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+NOTES:
+AWS Load Balancer controller installed!
+
+$ kubectl get nodes
+NAME                             STATUS   ROLES    AGE   VERSION
+ip-192-168-27-21.ec2.internal    Ready    <none>   13m   v1.32.9-eks-113cf36
+ip-192-168-33-215.ec2.internal   Ready    <none>   13m   v1.32.9-eks-113cf36
+
+$ kubectl get pods -A
+NAMESPACE     NAME                                           READY   STATUS    RESTARTS   AGE
+kube-system   aws-load-balancer-controller-d6bf8d785-kgnmw   1/1     Running   0          33s
+kube-system   aws-load-balancer-controller-d6bf8d785-sl9xh   1/1     Running   0          33s
+kube-system   aws-node-hqghl                                 2/2     Running   0          13m
+kube-system   aws-node-sgwwq                                 2/2     Running   0          13m
+kube-system   coredns-6b9575c64c-cvfbj                       1/1     Running   0          17m
+kube-system   coredns-6b9575c64c-lwr5f                       1/1     Running   0          17m
+kube-system   kube-proxy-l8782                               1/1     Running   0          13m
+kube-system   kube-proxy-ts967                               1/1     Running   0          13m
+kube-system   metrics-server-75c7985757-klhg4                1/1     Running   0          17m
+kube-system   metrics-server-75c7985757-nljch                1/1     Running   0          17m
+
+$ kubectl get svc -A
+NAMESPACE     NAME                                TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)                  AGE
+default       kubernetes                          ClusterIP   10.100.0.1       <none>        443/TCP                  20m
+kube-system   aws-load-balancer-webhook-service   ClusterIP   10.100.33.138    <none>        443/TCP                  41s
+kube-system   eks-extension-metrics-api           ClusterIP   10.100.232.247   <none>        443/TCP                  20m
+kube-system   kube-dns                            ClusterIP   10.100.0.10      <none>        53/UDP,53/TCP,9153/TCP   17m
+kube-system   metrics-server                      ClusterIP   10.100.56.1      <none>        443/TCP                  17m
+$ kubectl get deployment -n kube-system aws-load-balancer-controller
+NAME                           READY   UP-TO-DATE   AVAILABLE   AGE
+aws-load-balancer-controller   2/2     2            2           107s
+
+8. Sample App Deployment for ALB ingress controller testing.
+
+$ kubectl create namespace demo-app
+namespace/demo-app created
+$ cat > app-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-deployment
+  namespace: demo-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: demo-app
+  template:
+    metadata:
+      labels:
+        app: demo-app
+    spec:
+      containers:
+        - name: web
+          image: public.ecr.aws/nginx/nginx:latest
+          ports:
+            - containerPort: 80
+          env:
+            - name: MESSAGE
+              value: "Hello from ALB Ingress Controller"
+			  
+$ kubectl apply -f app-deployment.yaml
+deployment.apps/app-deployment created
+$ cat > app-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-service
+  namespace: demo-app
+spec:
+  ports:
+    - port: 80
+      targetPort: 80
+  selector:
+    app: demo-app
+  type: NodePort
+
+$ kubectl apply -f app-service.yaml
+service/app-service created
+$ cat > alb-ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: alb-ingress-default
+  namespace: demo-app
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+spec:
+  defaultBackend:
+    service:
+      name: app-service
+      port:
+        number: 80
+$ kubectl apply -f alb-ingress.yaml
+Warning: annotation "kubernetes.io/ingress.class" is deprecated, please use 'spec.ingressClassName' instead
+ingress.networking.k8s.io/alb-ingress created
+$ kubectl get ingress -n demo-app
+NAME          CLASS    HOSTS              ADDRESS                                                           PORTS   AGE
+alb-ingress   <none>   demo.example.com   k8s-demogroup-d8fcd1d0ee-1426252507.us-east-1.elb.amazonaws.com   80      7s
+$ curl k8s-demogroup-d8fcd1d0ee-1426252507.us-east-1.elb.amazonaws.com
+$ kubectl get pods
+No resources found in default namespace.
+$ kubectl get pods -n demo-app
+NAME                              READY   STATUS    RESTARTS   AGE
+app-deployment-7996957859-jlr2w   1/1     Running   0          10m
+app-deployment-7996957859-tnh87   1/1     Running   0          10m
+$ kubectl get svc -A
+
+NAMESPACE     NAME                                TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)                  AGE
+default       kubernetes                          ClusterIP   10.100.0.1       <none>        443/TCP                  32m
+demo-app      app-service                         NodePort    10.100.116.231   <none>        80:30103/TCP             10m
+kube-system   aws-load-balancer-webhook-service   ClusterIP   10.100.33.138    <none>        443/TCP                  13m
+kube-system   eks-extension-metrics-api           ClusterIP   10.100.232.247   <none>        443/TCP                  32m
+kube-system   kube-dns                            ClusterIP   10.100.0.10      <none>        53/UDP,53/TCP,9153/TCP   30m
+kube-system   metrics-server                      ClusterIP   10.100.56.1      <none>        443/TCP                  30m
+$
+$ kubectl get ingress -n demo-app -o wide
+NAME          CLASS    HOSTS              ADDRESS                                                           PORTS   AGE
+alb-ingress   <none>   demo.example.com   k8s-demogroup-d8fcd1d0ee-1426252507.us-east-1.elb.amazonaws.com   80      15m
+
+$
+$ curl -v http://k8s-demogroup-d8fcd1d0ee-1426252507.us-east-1.elb.amazonaws.com/
+*   Trying 3.233.182.15:80...
+* Connected to k8s-demogroup-d8fcd1d0ee-1426252507.us-east-1.elb.amazonaws.com (3.233.182.15) port 80 (#0)
+> GET / HTTP/1.1
+> Host: k8s-demogroup-d8fcd1d0ee-1426252507.us-east-1.elb.amazonaws.com
+> User-Agent: curl/7.76.1
+> Accept: */*
+>
+* Mark bundle as not supporting multiuse
+< HTTP/1.1 200 OK
+< Date: Tue, 14 Oct 2025 09:45:08 GMT
+< Content-Type: text/html
+< Content-Length: 615
+< Connection: keep-alive
+< Server: nginx/1.29.2
+< Last-Modified: Tue, 07 Oct 2025 17:04:07 GMT
+< ETag: "68e54807-267"
+< Accept-Ranges: bytes
+<
+<!DOCTYPE html>
+<html>
+<head>
+<title>Welcome to nginx!</title>
+<style>
+html { color-scheme: light dark; }
+body { width: 35em; margin: 0 auto;
+font-family: Tahoma, Verdana, Arial, sans-serif; }
+</style>
+</head>
+<body>
+<h1>Welcome to nginx!</h1>
+<p>If you see this page, the nginx web server is successfully installed and
+working. Further configuration is required.</p>
+
+<p>For online documentation and support please refer to
+<a href="http://nginx.org/">nginx.org</a>.<br/>
+Commercial support is available at
+<a href="http://nginx.com/">nginx.com</a>.</p>
+
+<p><em>Thank you for using nginx.</em></p>
+</body>
+</html>
+* Connection #0 to host k8s-demogroup-d8fcd1d0ee-1426252507.us-east-1.elb.amazonaws.com left intact
+
+==================
+9. Delete Cluster :
+==================
+$ eksctl delete cluster --name my-eks-cluster --region us-east-1
+
