@@ -1,8 +1,25 @@
-Pre-requistes :
+Pre-requisites
 
-1. AWS CLI
-2. kubectl 
-3. eksctl 
+1.Install and configure AWS CLI
+
+aws configure
+Set Access Key, Secret Key, Region (e.g., us-west-2), Output = json.
+
+2.Install eksctl
+
+curl -sLO "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz"
+tar -xzf eksctl_$(uname -s)_amd64.tar.gz -C /usr/local/bin
+eksctl version
+
+3.Install kubectl
+
+curl -o kubectl https://s3.us-west-2.amazonaws.com/amazon-eks/1.29.0/2024-03-11/bin/linux/amd64/kubectl
+chmod +x ./kubectl
+mv kubectl /usr/local/bin/
+
+kubectl version --client
+
+EKS Cluster minimal installation steps: ( Beginner and Learning,this method not applicable for production Deployment )
 
 
 Step1 : Create EKS Cluster 
