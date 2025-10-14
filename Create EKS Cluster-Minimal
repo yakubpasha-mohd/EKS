@@ -1,0 +1,119 @@
+Pre-requistes :
+
+1. AWS CLI
+2. kubectl 
+3. eksctl 
+
+
+Step1 : Create EKS Cluster 
+
+$ eksctl create cluster \
+  --name my-eks-cluster \
+  --region us-east-1 \
+  --nodes 2 \
+  --nodes-min 1 \
+  --nodes-max 2 \
+  --nodegroup-name my-eks-nodegrp \
+  --node-type t3.medium \
+  --managed
+
+Step2: Checks nodes 
+
+$ kubectl get nodes
+
+sample expected output:
+
+[ec2-user@ip-172-31-88-190 ~]$ kubectl get nodes
+NAME                            STATUS   ROLES    AGE     VERSION
+ip-192-168-34-91.ec2.internal   Ready    <none>   5m20s   v1.32.9-eks-113cf36
+ip-192-168-8-203.ec2.internal   Ready    <none>   5m21s   v1.32.9-eks-113cf36
+
+Step3 : Check the cluster status
+
+aws eks describe-cluster \
+  --name my-eks-cluster \
+  --region us-east-1 \
+  --query "cluster.status"
+
+sample expected output:
+
+
+"ACTIVE"
+
+Step4 : Check the components 
+
+kubectl get pods -n kube-system
+
+sample expected output:
+
+[ec2-user@ip-172-31-88-190 ~]$ kubectl get pods -n kube-system
+NAME                              READY   STATUS    RESTARTS   AGE
+aws-node-ghhmh                    2/2     Running   0          7m45s
+aws-node-q5mvw                    2/2     Running   0          7m44s
+coredns-6b9575c64c-g9g5d          1/1     Running   0          11m
+coredns-6b9575c64c-p872s          1/1     Running   0          11m
+kube-proxy-84cj6                  1/1     Running   0          7m45s
+kube-proxy-jkvq2                  1/1     Running   0          7m44s
+metrics-server-75c7985757-682hz   1/1     Running   0          11m
+metrics-server-75c7985757-fwb4r   1/1     Running   0          11m
+[ec2-user@ip-172-31-88-190 ~]$
+
+Step 5: Create a Sample nginx pod
+
+command :  kubectl run nginx --image=nginx --port=80
+
+sample expected output:
+
+[ec2-user@ip-172-31-88-190 ~]$ kubectl run nginx --image=nginx --port=80
+pod/nginx created
+[ec2-user@ip-172-31-88-190 ~]$ kubectl get pods
+NAME    READY   STATUS    RESTARTS   AGE
+nginx   1/1     Running   0          6s
+[ec2-user@ip-172-31-88-190 ~]$
+
+Step6 : Expose nginx application, so that anyone can access using web browser
+
+[ec2-user@ip-172-31-88-190 ~]$ kubectl expose pod nginx --type=LoadBalancer --port=80
+service/nginx exposed
+[ec2-user@ip-172-31-88-190 ~]$ kubectl get pods
+NAME    READY   STATUS    RESTARTS   AGE
+nginx   1/1     Running   0          69s
+[ec2-user@ip-172-31-88-190 ~]$ kubectl get svc
+NAME         TYPE           CLUSTER-IP    EXTERNAL-IP                                                               PORT(S)        AGE
+kubernetes   ClusterIP      10.100.0.1    <none>                                                                    443/TCP        18m
+nginx        LoadBalancer   10.100.3.37   a39282a4e5b01483fbfc00f0708b1740-1565262552.us-east-1.elb.amazonaws.com   80:32458/TCP   105s
+[ec2-user@ip-172-31-88-190 ~]$
+
+Steps 7: Delete EKS Cluster 
+
+$ eksctl delete cluster --name=my-eks-cluster --region=us-east-1
+
+
+Sample expected output:
+
+[ec2-user@ip-172-31-88-190 ~]$ eksctl delete cluster --name=my-eks-cluster --region=us-east-1
+2025-10-14 08:10:34 [ℹ]  deleting EKS cluster "my-eks-cluster"
+2025-10-14 08:10:34 [ℹ]  will drain 0 unmanaged nodegroup(s) in cluster "my-eks-cluster"
+2025-10-14 08:10:34 [ℹ]  starting parallel draining, max in-flight of 1
+2025-10-14 08:10:34 [ℹ]  deleted 0 Fargate profile(s)
+2025-10-14 08:10:35 [✔]  kubeconfig has been updated
+2025-10-14 08:10:35 [ℹ]  cleaning up AWS load balancers created by Kubernetes objects of Kind Service or Ingress
+2025-10-14 08:11:11 [ℹ]
+2 sequential tasks: { delete nodegroup "my-eks-nodegrp", delete cluster control plane "my-eks-cluster" [async]
+}
+2025-10-14 08:11:11 [ℹ]  will delete stack "eksctl-my-eks-cluster-nodegroup-my-eks-nodegrp"
+2025-10-14 08:11:11 [ℹ]  waiting for stack "eksctl-my-eks-cluster-nodegroup-my-eks-nodegrp" to get deleted
+2025-10-14 08:11:11 [ℹ]  waiting for CloudFormation stack "eksctl-my-eks-cluster-nodegroup-my-eks-nodegrp"
+2025-10-14 08:11:42 [ℹ]  waiting for CloudFormation stack "eksctl-my-eks-cluster-nodegroup-my-eks-nodegrp"
+2025-10-14 08:12:38 [ℹ]  waiting for CloudFormation stack "eksctl-my-eks-cluster-nodegroup-my-eks-nodegrp"
+2025-10-14 08:14:28 [ℹ]  waiting for CloudFormation stack "eksctl-my-eks-cluster-nodegroup-my-eks-nodegrp"
+2025-10-14 08:16:07 [ℹ]  waiting for CloudFormation stack "eksctl-my-eks-cluster-nodegroup-my-eks-nodegrp"
+2025-10-14 08:16:38 [ℹ]  waiting for CloudFormation stack "eksctl-my-eks-cluster-nodegroup-my-eks-nodegrp"
+2025-10-14 08:17:22 [ℹ]  waiting for CloudFormation stack "eksctl-my-eks-cluster-nodegroup-my-eks-nodegrp"
+2025-10-14 08:19:04 [ℹ]  waiting for CloudFormation stack "eksctl-my-eks-cluster-nodegroup-my-eks-nodegrp"
+2025-10-14 08:20:42 [ℹ]  waiting for CloudFormation stack "eksctl-my-eks-cluster-nodegroup-my-eks-nodegrp"
+2025-10-14 08:20:42 [ℹ]  will delete stack "eksctl-my-eks-cluster-cluster"
+2025-10-14 08:20:42 [✔]  all cluster resources were deleted
+[ec2-user@ip-172-31-88-190 ~]$
+
+
