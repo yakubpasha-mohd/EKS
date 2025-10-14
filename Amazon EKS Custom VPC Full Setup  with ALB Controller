@@ -1,5 +1,29 @@
 Amazon EKS Custom VPC Full Setup + ALB Controller 
- 
+
+Pre-requisites
+
+1.Install and configure AWS CLI
+
+aws configure
+Set Access Key, Secret Key, Region (e.g., us-west-2), Output = json.
+
+2.Install eksctl
+
+curl -sLO "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz"
+tar -xzf eksctl_$(uname -s)_amd64.tar.gz -C /usr/local/bin
+eksctl version
+
+3.Install kubectl
+
+curl -o kubectl https://s3.us-west-2.amazonaws.com/amazon-eks/1.29.0/2024-03-11/bin/linux/amd64/kubectl
+chmod +x ./kubectl
+mv kubectl /usr/local/bin/
+
+kubectl version
+
+=================
+Custome VPC Steps:
+=================
  
 Step 1: Create a Custom VPC
 
@@ -112,7 +136,9 @@ SG_PRIVATE=$(aws ec2 create-security-group \
 aws ec2 authorize-security-group-ingress --group-id $SG_PRIVATE --protocol -1 --source-group $SG_PUBLIC
 aws ec2 authorize-security-group-ingress --group-id $SG_PRIVATE --protocol -1 --source-group $SG_PRIVATE
 
-
+=================================
+EKS Cluster create steps using CLI
+==================================
 
  
 Step 6: Create EKS Cluster
@@ -166,7 +192,7 @@ helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
   --set serviceAccount.name=aws-load-balancer-controller \
   --set vpcId=$VPC_ID
  
-Verification
+Verification:
 
 aws eks describe-cluster --name eks-prod-cluster --region us-east-1 --query "cluster.status"
 kubectl get nodes
@@ -219,7 +245,9 @@ spec:
   ports:
     - port: 80
       targetPort: 80
+
 Apply:
+
 kubectl apply -f app-service.yaml
 
 Ingress: alb-ingress.yaml
@@ -239,6 +267,7 @@ spec:
       name: app-service
       port:
         number: 80
+
 Apply and Verify:
 
 kubectl apply -f alb-ingress.yaml
