@@ -1,0 +1,247 @@
+Amazon EKS Custom VPC Full Setup + ALB Controller 
+ 
+ 
+Step 1: Create a Custom VPC
+
+VPC_NAME="eks-prod-vpc-prod"
+
+REGION="us-east-1"
+
+VPC_ID=$(aws ec2 create-vpc \
+  --cidr-block 10.10.0.0/16 \
+  --tag-specifications "ResourceType=vpc,Tags=[{Key=Name,Value=$VPC_NAME},{Key=Environment,Value=prod}]" \
+  --query "Vpc.VpcId" --output text --region $REGION)
+
+echo "VPC Created: $VPC_ID"
+
+
+Step 2: Create Public and Private Subnets
+
+# Public subnets
+
+aws ec2 create-subnet --vpc-id $VPC_ID --cidr-block 10.10.1.0/24 \
+  --availability-zone us-east-1a \
+  --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=eks-prod-public-us-east-1a-prod},{Key=SubnetType,Value=public},{Key=Environment,Value=prod}]'
+
+aws ec2 create-subnet --vpc-id $VPC_ID --cidr-block 10.10.2.0/24 \
+  --availability-zone us-east-1b \
+  --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=eks-prod-public-us-east-1b-prod},{Key=SubnetType,Value=public},{Key=Environment,Value=prod}]'
+
+# Private subnets
+
+aws ec2 create-subnet --vpc-id $VPC_ID --cidr-block 10.10.11.0/24 \
+  --availability-zone us-east-1a \
+  --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=eks-prod-private-us-east-1a-prod},{Key=SubnetType,Value=private},{Key=Environment,Value=prod}]'
+
+aws ec2 create-subnet --vpc-id $VPC_ID --cidr-block 10.10.12.0/24 \
+  --availability-zone us-east-1b \
+  --tag-specifications 'ResourceType=subnet,Tags=[{Key=Name,Value=eks-prod-private-us-east-1b-prod},{Key=SubnetType,Value=private},{Key=Environment,Value=prod}]'
+  
+
+
+PUB_A_ID=$(aws ec2 describe-subnets --filters "Name=tag:Name,Values=eks-prod-public-us-east-1a-prod" --query "Subnets[0].SubnetId" --output text)
+PUB_B_ID=$(aws ec2 describe-subnets --filters "Name=tag:Name,Values=eks-prod-public-us-east-1b-prod" --query "Subnets[0].SubnetId" --output text)
+PRIV_A_ID=$(aws ec2 describe-subnets --filters "Name=tag:Name,Values=eks-prod-private-us-east-1a-prod" --query "Subnets[0].SubnetId" --output text)
+PRIV_B_ID=$(aws ec2 describe-subnets --filters "Name=tag:Name,Values=eks-prod-private-us-east-1b-prod" --query "Subnets[0].SubnetId" --output text)
+ 
+Step 3: Create Internet Gateway & NAT Gateway
+
+IGW_ID=$(aws ec2 create-internet-gateway \
+  --tag-specifications 'ResourceType=internet-gateway,Tags=[{Key=Name,Value=eks-prod-igw-prod}]' \
+  --query "InternetGateway.InternetGatewayId" --output text)
+
+aws ec2 attach-internet-gateway --vpc-id $VPC_ID --internet-gateway-id $IGW_ID
+
+EIP_ALLOC_ID=$(aws ec2 allocate-address --query "AllocationId" --output text)
+
+NAT_ID=$(aws ec2 create-nat-gateway \
+  --subnet-id $PUB_A_ID \
+  --allocation-id $EIP_ALLOC_ID \
+  --tag-specifications 'ResourceType=natgateway,Tags=[{Key=Name,Value=eks-prod-natgw-prod}]' \
+  --query "NatGateway.NatGatewayId" --output text)
+
+aws ec2 wait nat-gateway-available --nat-gateway-ids $NAT_ID
+ 
+Step 4: Create Route Tables & Associations
+
+# Public RT
+
+RTB_PUB=$(aws ec2 create-route-table \
+  --vpc-id $VPC_ID \
+  --tag-specifications 'ResourceType=route-table,Tags=[{Key=Name,Value=eks-prod-rt-public-prod}]' \
+  --query "RouteTable.RouteTableId" --output text)
+
+aws ec2 create-route --route-table-id $RTB_PUB --destination-cidr-block 0.0.0.0/0 --gateway-id $IGW_ID
+
+aws ec2 associate-route-table --route-table-id $RTB_PUB --subnet-id $PUB_A_ID
+aws ec2 associate-route-table --route-table-id $RTB_PUB --subnet-id $PUB_B_ID
+
+# Private RT
+
+RTB_PRIV=$(aws ec2 create-route-table \
+  --vpc-id $VPC_ID \
+  --tag-specifications 'ResourceType=route-table,Tags=[{Key=Name,Value=eks-prod-rt-private-prod}]' \
+  --query "RouteTable.RouteTableId" --output text)
+
+aws ec2 create-route --route-table-id $RTB_PRIV --destination-cidr-block 0.0.0.0/0 --nat-gateway-id $NAT_ID
+aws ec2 associate-route-table --route-table-id $RTB_PRIV --subnet-id $PRIV_A_ID
+aws ec2 associate-route-table --route-table-id $RTB_PRIV --subnet-id $PRIV_B_ID
+
+Step 5: Create Security Groups
+
+CLUSTER_NAME="eks-prod-cluster"
+
+# Public SG
+
+SG_PUBLIC=$(aws ec2 create-security-group \
+  --group-name ${CLUSTER_NAME}-sg-public \
+  --description "Public access SG for ${CLUSTER_NAME}" \
+  --vpc-id $VPC_ID --query 'GroupId' --output text)
+
+aws ec2 authorize-security-group-ingress --group-id $SG_PUBLIC --protocol tcp --port 22 --cidr 0.0.0.0/0
+aws ec2 authorize-security-group-ingress --group-id $SG_PUBLIC --protocol tcp --port 80 --cidr 0.0.0.0/0
+aws ec2 authorize-security-group-ingress --group-id $SG_PUBLIC --protocol tcp --port 443 --cidr 0.0.0.0/0
+
+# Private SG
+
+SG_PRIVATE=$(aws ec2 create-security-group \
+  --group-name ${CLUSTER_NAME}-sg-private \
+  --description "Private access SG for ${CLUSTER_NAME}" \
+  --vpc-id $VPC_ID --query 'GroupId' --output text)
+
+aws ec2 authorize-security-group-ingress --group-id $SG_PRIVATE --protocol -1 --source-group $SG_PUBLIC
+aws ec2 authorize-security-group-ingress --group-id $SG_PRIVATE --protocol -1 --source-group $SG_PRIVATE
+
+
+
+ 
+Step 6: Create EKS Cluster
+ 
+eksctl create cluster \
+  --name eks-prod-cluster \
+  --region us-east-1 \
+  --vpc-public-subnets $PUB_A_ID,$PUB_B_ID \
+  --vpc-private-subnets $PRIV_A_ID,$PRIV_B_ID \
+  --without-nodegroup
+ 
+Step 7: Create Node Group
+
+eksctl create nodegroup \
+  --cluster eks-prod-cluster \
+  --region us-east-1 \
+  --name eks-prod-nodegroup \
+  --node-type t3.medium \
+  --nodes 2 --nodes-min 1 --nodes-max 2 \
+  --managed \
+  --subnet-ids $PRIV_A_ID,$PRIV_B_ID \
+  --node-private-networking
+  
+ 
+Step 8: Install ALB Controller
+
+eksctl utils associate-iam-oidc-provider --cluster eks-prod-cluster --region us-east-1 --approve
+
+curl -o alb-policy.json https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/main/docs/install/iam_policy.json
+
+aws iam create-policy \
+  --policy-name AWSLoadBalancerControllerIAMPolicy-eks-prod-cluster \
+  --policy-document file://alb-policy.json
+
+ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text)
+
+eksctl create iamserviceaccount \
+  --cluster eks-prod-cluster \
+  --region us-east-1 \
+  --namespace kube-system \
+  --name aws-load-balancer-controller \
+  --attach-policy-arn arn:aws:iam::$ACCOUNT_ID:policy/AWSLoadBalancerControllerIAMPolicy-eks-prod-cluster \
+  --approve --override-existing-serviceaccounts
+
+helm repo add eks https://aws.github.io/eks-charts && helm repo update
+
+helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
+  -n kube-system \
+  --set clusterName=eks-prod-cluster \
+  --set serviceAccount.create=false \
+  --set serviceAccount.name=aws-load-balancer-controller \
+  --set vpcId=$VPC_ID
+ 
+Verification
+
+aws eks describe-cluster --name eks-prod-cluster --region us-east-1 --query "cluster.status"
+kubectl get nodes
+kubectl get pods -n kube-system
+kubectl get svc -A
+
+Step 9: Deploy Demo App with ALB Ingress
+
+Create Namespace:
+
+kubectl create namespace demo-app
+
+Deployment: app-deployment.yaml
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-deployment
+  namespace: demo-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: demo-app
+  template:
+    metadata:
+      labels:
+        app: demo-app
+    spec:
+      containers:
+        - name: web
+          image: public.ecr.aws/nginx/nginx:latest
+          ports:
+            - containerPort: 80
+Apply:
+
+kubectl apply -f app-deployment.yaml
+
+Service: app-service.yaml
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-service
+  namespace: demo-app
+spec:
+  type: ClusterIP
+  selector:
+    app: demo-app
+  ports:
+    - port: 80
+      targetPort: 80
+Apply:
+kubectl apply -f app-service.yaml
+
+Ingress: alb-ingress.yaml
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: alb-ingress-default
+  namespace: demo-app
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+spec:
+  ingressClassName: alb
+  defaultBackend:
+    service:
+      name: app-service
+      port:
+        number: 80
+Apply and Verify:
+
+kubectl apply -f alb-ingress.yaml
+
+kubectl get ingress -n demo-app
+
