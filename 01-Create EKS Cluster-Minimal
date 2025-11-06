@@ -19,6 +19,42 @@ mv kubectl /usr/local/bin/
 
 kubectl version --client
 
+logs: 
+
+
+[ec2-user@ip-172-31-4-10 ~]$ sudo curl -o kubectl https://s3.us-west-2.amazonaws.com/amazon-eks/1.29.0/2024-03-11/bin/linux/amd64/kubectl
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100   312    0   312    0     0   1369      0 --:--:-- --:--:-- --:--:--  1374
+[ec2-user@ip-172-31-4-10 ~]$ chmod +x ./kubectl
+chmod: changing permissions of './kubectl': Operation not permitted
+[ec2-user@ip-172-31-4-10 ~]$ sudo chmod +x ./kubectl
+[ec2-user@ip-172-31-4-10 ~]$ mv kubectl /usr/local/bin/
+mv: cannot move 'kubectl' to '/usr/local/bin/kubectl': Permission denied
+[ec2-user@ip-172-31-4-10 ~]$ sudo mv kubectl /usr/local/bin/
+[ec2-user@ip-172-31-4-10 ~]$ kubectl version --client
+/usr/local/bin/kubectl: line 1: syntax error near unexpected token `newline'
+/usr/local/bin/kubectl: line 1: `<?xml version="1.0" encoding="UTF-8"?>'
+[ec2-user@ip-172-31-4-10 ~]$
+
+Fix :
+
+[ec2-user@ip-172-31-4-10 ~]$ sudo rm -f /usr/local/bin/kubectl
+[ec2-user@ip-172-31-4-10 ~]$ sudo curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100   138  100   138    0     0   2564      0 --:--:-- --:--:-- --:--:--  2603
+100 57.7M  100 57.7M    0     0   101M      0 --:--:-- --:--:-- --:--:--  115M
+[ec2-user@ip-172-31-4-10 ~]$ chmod +x kubectl
+chmod: changing permissions of 'kubectl': Operation not permitted
+[ec2-user@ip-172-31-4-10 ~]$ sudo chmod +x kubectl
+[ec2-user@ip-172-31-4-10 ~]$ sudo mv kubectl /usr/local/bin/
+[ec2-user@ip-172-31-4-10 ~]$ kubectl version --client
+Client Version: v1.34.1
+Kustomize Version: v5.7.1
+[ec2-user@ip-172-31-4-10 ~]$
+
+
 EKS Cluster minimal installation steps: ( Beginner and Learning,this method not applicable for production Deployment )
 
 
