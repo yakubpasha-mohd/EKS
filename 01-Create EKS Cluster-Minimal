@@ -8,6 +8,9 @@ curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip
 # Install the unzip package
 sudo apt-get install unzip -y
 
+amazon linux :
+sudo yum install unzip -y
+
 # Unzip the AWS CLI installer package
 unzip awscliv2.zip
 
